@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* fundo com grid suave e blobs */
+.background-grid {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(circle at center, black 40%, transparent 75%);
+    -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 75%);
+    opacity: .6;
+}
+
+@keyframes float {
+    0% {
+        transform: translateY(0) translateX(0)
+    }
+
+    50% {
+        transform: translateY(-18px) translateX(10px)
+    }
+
+    100% {
+        transform: translateY(0) translateX(0)
+    }
+}

@@ -1,0 +1,30 @@
+# Node / monorepo
+node_modules/
+dist/
+build/
+.vite/
+.next/
+coverage/
+*.log
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# DB (SQLite)
+*.db
+*.db-journal
+prisma/*.db
+prisma/*.db-journal
+
+# Sistemas/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Locks (opcional manter 1 só)
+# Se quiser versionar o lock que usa, remova os outros
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
