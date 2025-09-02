@@ -16,24 +16,12 @@ const RESERVED = new Set(["api", "health", "favicon.ico"]);
 // validações
 const linkCreateSchema = z.object({
     url: z.string().url(),
-    slug: z
-        .string()
-        .trim()
-        .min(3)
-        .max(24)
-        .regex(/^[a-z0-9-]+$/)
-        .optional(),
+    slug: z.string().trim().min(3).max(24).regex(/^[a-z0-9-]+$/).optional(),
     title: z.string().trim().optional(),
 });
 const linkUpdateSchema = z.object({
     url: z.string().url().optional(),
-    slug: z
-        .string()
-        .trim()
-        .min(3)
-        .max(24)
-        .regex(/^[a-z0-9-]+$/)
-        .optional(),
+    slug: z.string().trim().min(3).max(24).regex(/^[a-z0-9-]+$/).optional(),
     title: z.string().trim().optional(),
 });
 
@@ -200,7 +188,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     });
 });
 
-// DELETAR (soft-delete) — garante que o link é do usuário
+// DELETAR (soft-delete)
 router.delete("/:id", requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const link = await prisma.link.findFirst({

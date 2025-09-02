@@ -5,76 +5,92 @@ import React, {
     useMemo,
     useRef,
     useState,
-} from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, XCircle, Info, AlertTriangle, X } from 'lucide-react'
+    useEffect,
+} from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { CheckCircle2, XCircle, Info, AlertTriangle, X } from "lucide-react";
 
-type Variant = 'success' | 'error' | 'info' | 'warning'
+type Variant = "success" | "error" | "info" | "warning";
 
 type ToastInput = {
-    title?: string
-    message: string
-    variant?: Variant
-    duration?: number // ms
-}
+    title?: string;
+    message: string;
+    variant?: Variant;
+    duration?: number; // ms
+};
 
-type Toast = ToastInput & { id: string }
+type Toast = ToastInput & { id: string };
 
 type ToastCtx = {
-    push: (t: ToastInput) => void
-    success: (msg: string, opts?: Omit<ToastInput, 'message' | 'variant'>) => void
-    error: (msg: string, opts?: Omit<ToastInput, 'message' | 'variant'>) => void
-    info: (msg: string, opts?: Omit<ToastInput, 'message' | 'variant'>) => void
-    warning: (msg: string, opts?: Omit<ToastInput, 'message' | 'variant'>) => void
-}
+    push: (t: ToastInput) => void;
+    success: (msg: string, opts?: Omit<ToastInput, "message" | "variant">) => void;
+    error: (msg: string, opts?: Omit<ToastInput, "message" | "variant">) => void;
+    info: (msg: string, opts?: Omit<ToastInput, "message" | "variant">) => void;
+    warning: (msg: string, opts?: Omit<ToastInput, "message" | "variant">) => void;
+};
 
-const Ctx = createContext<ToastCtx | null>(null)
+const Ctx = createContext<ToastCtx | null>(null);
 export const useToast = () => {
-    const v = useContext(Ctx)
-    if (!v) throw new Error('useToast must be used inside <ToastProvider>')
-    return v
-}
+    const v = useContext(Ctx);
+    if (!v) throw new Error("useToast must be used inside <ToastProvider>");
+    return v;
+};
 
 const ICON: Record<Variant, React.ReactNode> = {
     success: <CheckCircle2 className="size-5" />,
     error: <XCircle className="size-5" />,
     info: <Info className="size-5" />,
     warning: <AlertTriangle className="size-5" />,
-}
+};
 
 const COLORS: Record<Variant, string> = {
-    success: 'from-emerald-500/20 to-emerald-400/10 text-emerald-500',
-    error: 'from-rose-500/20 to-rose-400/10 text-rose-500',
-    info: 'from-sky-500/20 to-sky-400/10 text-sky-500',
-    warning: 'from-amber-500/20 to-amber-400/10 text-amber-500',
-}
+    success: "from-emerald-500/20 to-emerald-400/10 text-emerald-500",
+    error: "from-rose-500/20 to-rose-400/10 text-rose-500",
+    info: "from-sky-500/20 to-sky-400/10 text-sky-500",
+    warning: "from-amber-500/20 to-amber-400/10 text-amber-500",
+};
 
 function nanoid() {
-    return Math.random().toString(36).slice(2, 10)
+    return Math.random().toString(36).slice(2, 10);
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-    const [toasts, setToasts] = useState<Toast[]>([])
+    const [toasts, setToasts] = useState<Toast[]>([]);
 
     const push = useCallback((t: ToastInput) => {
-        setToasts((list) => [
-            { id: nanoid(), variant: 'info', duration: 3500, ...t },
-            ...list.slice(0, 4), // mantém no máx 5 empilhados
-        ])
-    }, [])
+        setToasts((list: Toast[]) => [
+            { id: nanoid(), variant: "info", duration: 3500, ...t },
+            ...list.slice(0, 4), // máx 5 empilhados
+        ]);
+    }, []);
 
     const api = useMemo<ToastCtx>(
         () => ({
             push,
-            success: (message, opts) => push({ message, variant: 'success', ...opts }),
-            error: (message, opts) => push({ message, variant: 'error', ...opts }),
-            info: (message, opts) => push({ message, variant: 'info', ...opts }),
-            warning: (message, opts) => push({ message, variant: 'warning', ...opts }),
+            success: (message, opts) => push({ message, variant: "success", ...opts }),
+            error: (message, opts) => push({ message, variant: "error", ...opts }),
+            info: (message, opts) => push({ message, variant: "info", ...opts }),
+            warning: (message, opts) => push({ message, variant: "warning", ...opts }),
         }),
         [push]
-    )
+    );
 
-    const remove = (id: string) => setToasts((l) => l.filter((t) => t.id !== id))
+    // expõe atalho global para ser usado no interceptor do axios
+    useEffect(() => {
+        (window as any).toast = {
+            success: (m: string) => api.success(m),
+            error: (m: string) => api.error(m),
+            info: (m: string) => api.info(m),
+            warning: (m: string) => api.warning(m),
+        };
+        return () => {
+            try {
+                delete (window as any).toast;
+            } catch { }
+        };
+    }, [api]);
+
+    const remove = (id: string) => setToasts((l) => l.filter((t) => t.id !== id));
 
     return (
         <Ctx.Provider value={api}>
@@ -89,7 +105,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 </AnimatePresence>
             </div>
         </Ctx.Provider>
-    )
+    );
 }
 
 function ToastItem({
@@ -97,37 +113,41 @@ function ToastItem({
     onClose,
     offset,
 }: {
-    toast: Toast
-    onClose: () => void
-    offset: number
+    toast: Toast;
+    onClose: () => void;
+    offset: number;
 }) {
-    const { variant = 'info', duration = 3500, title, message } = toast
+    const { variant = "info", duration = 3500, title, message } = toast;
 
-    const timeoutRef = useRef<number | null>(null)
-    const startRef = useRef<number>(Date.now())
-    const remainRef = useRef<number>(duration)
+    const timeoutRef = useRef<number | null>(null);
+    const startRef = useRef<number>(Date.now());
+    const remainRef = useRef<number>(duration);
 
     const start = () => {
-        clear()
-        startRef.current = Date.now()
-        timeoutRef.current = window.setTimeout(onClose, remainRef.current)
-    }
+        clear();
+        startRef.current = Date.now();
+        timeoutRef.current = window.setTimeout(onClose, remainRef.current);
+    };
     const clear = () => {
-        if (timeoutRef.current) window.clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-    }
+        if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+    };
     const pause = () => {
-        if (!timeoutRef.current) return
-        remainRef.current -= Date.now() - startRef.current
-        clear()
-    }
-    const resume = () => start()
+        if (!timeoutRef.current) return;
+        remainRef.current -= Date.now() - startRef.current;
+        clear();
+    };
+    const resume = () => start();
 
-    React.useEffect(() => {
-        start()
-        return clear
+    useEffect(() => {
+        start();
+        return clear;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+    }, []);
+
+    // pega a última classe de cor sem usar .at()
+    const colorTokens = COLORS[variant].split(" ");
+    const lastColorClass = colorTokens[colorTokens.length - 1] || "";
 
     return (
         <motion.div
@@ -135,7 +155,7 @@ function ToastItem({
             initial={{ opacity: 0, y: -16, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -16, scale: 0.96 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+            transition={{ type: "spring", stiffness: 420, damping: 30 }}
             className="pointer-events-auto w-full max-w-xl"
             style={{ marginTop: offset ? 0 : 4 }}
             onMouseEnter={pause}
@@ -145,11 +165,11 @@ function ToastItem({
         >
             <div
                 className={[
-                    'relative overflow-hidden rounded-2xl border',
-                    'bg-white/70 dark:bg-zinc-900/70 backdrop-blur',
-                    'border-zinc-200/70 dark:border-white/10',
-                    'shadow-[0_12px_48px_-12px_rgba(0,0,0,.35)]',
-                ].join(' ')}
+                    "relative overflow-hidden rounded-2xl border",
+                    "bg-white/70 dark:bg-zinc-900/70 backdrop-blur",
+                    "border-zinc-200/70 dark:border-white/10",
+                    "shadow-[0_12px_48px_-12px_rgba(0,0,0,.35)]",
+                ].join(" ")}
             >
                 {/* gradiente sutil por variante */}
                 <div
@@ -159,9 +179,7 @@ function ToastItem({
 
                 <div className="relative flex items-start gap-3 px-4 py-3">
                     <div
-                        className={`mt-0.5 flex size-8 items-center justify-center rounded-full bg-white/70 dark:bg-zinc-950/60 ring-1 ring-black/5 dark:ring-white/10 ${COLORS[
-                            variant
-                        ].split(' ').at(-1)}`}
+                        className={`mt-0.5 flex size-8 items-center justify-center rounded-full bg-white/70 dark:bg-zinc-950/60 ring-1 ring-black/5 dark:ring-white/10 ${lastColorClass}`}
                     >
                         {ICON[variant]}
                     </div>
@@ -184,13 +202,13 @@ function ToastItem({
                 <div
                     className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-transparent via-black/20 to-transparent dark:via-white/30"
                     style={{
-                        width: '100%',
-                        transformOrigin: 'left',
+                        width: "100%",
+                        transformOrigin: "left",
                         animation: `toast-progress ${duration}ms linear forwards`,
-                        animationPlayState: timeoutRef.current ? ('running' as const) : ('paused' as const),
+                        animationPlayState: timeoutRef.current ? ("running" as const) : ("paused" as const),
                     }}
                 />
             </div>
         </motion.div>
-    )
+    );
 }

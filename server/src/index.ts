@@ -4,18 +4,17 @@ import type { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import http from "http";
 
-// imports com .js (ESM + NodeNext)
 import authRoutes from "./routes/auth.js";
 import linksRoutes, { redirectHandler } from "./routes/links.js";
 
 dotenv.config();
 
-const app = express();                 // ✅ cria o app primeiro
+const app = express();
 const server = http.createServer(app);
 
 app.set("trust proxy", true);
 
-// ----- CORS (depois do app) -----
+// ----- CORS -----
 const allowList = (process.env.CORS_ORIGIN || "")
     .split(",")
     .map(s => s.trim())
@@ -25,7 +24,6 @@ const corsOptions: CorsOptions = {
     origin(origin, cb) {
         if (!origin) return cb(null, true); // healthchecks/curl
         if (allowList.includes(origin)) return cb(null, true);
-        // opcional: liberar previews *.vercel.app
         try {
             const { hostname } = new URL(origin);
             if (hostname.endsWith(".vercel.app")) return cb(null, true);
@@ -40,7 +38,7 @@ const corsOptions: CorsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-// --------------------------------
+// -----------------
 
 app.use(express.json());
 
