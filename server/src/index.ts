@@ -23,5 +23,5 @@ app.use("/api/links", linksRoutes);
 // rota de redirecionamento por último (só GET)
 app.get("/:slug", redirectHandler);
 
-const PORT = Number(process.env.PORT) || 4500;
-server.listen(PORT, () => console.log(`ShortTrack API on :${PORT}`));
+const PORT = Number(process.env.PORT ?? 8080);
+server.listen(PORT, '0.0.0.0', () => console.log(`ShortTrack API on :${PORT}`));
