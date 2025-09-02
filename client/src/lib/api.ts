@@ -19,30 +19,41 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (res) => res,
     (err) => {
-        const status = err?.response?.status;
+        const status = err?.response?.status ?? 0;
         const data = err?.response?.data;
-        const path = String(err?.config?.url || '').toLowerCase();
+        const path = String(err?.config?.url || "").toLowerCase();
 
         const toast = (window as any).toast as
             | undefined
             | { success: (m: string) => void; error: (m: string) => void; info: (m: string) => void; warning: (m: string) => void };
 
+        const backendMsg: string | undefined =
+            (data && (data.error || data.message)) || undefined;
+
         if (status === 401) {
-            if (toast) {
-                if (path.includes('/api/auth/login')) {
-                    toast.warning?.('E-mail ou senha incorretos.');
-                } else {
-                    toast.warning?.('Sessão expirada. Faça login novamente.');
-                }
+            // não autorizado
+            if (path.includes("/api/auth/login")) {
+                toast?.warning?.("E-mail ou senha incorretos.");
+            } else {
+                toast?.warning?.("Sessão expirada. Faça login novamente.");
+                try { localStorage.removeItem("st_token"); } catch { }
             }
-            // limpa token em 401 (menos na rota de login)
-            if (!path.includes('/api/auth/login')) {
-                try { localStorage.removeItem('st_token'); } catch { }
-            }
+        } else if (status === 409) {
+            // conflito (recurso já existe / slug em uso / e-mail já em uso)
+            let msg =
+                backendMsg ||
+                (path.includes("/api/auth/register")
+                    ? "Este e-mail ou telefone já está em uso."
+                    : path.includes("/api/links")
+                        ? "Conflito: slug já em uso ou reservado."
+                        : "Conflito: recurso já existe.");
+            toast?.warning?.(msg);
         } else {
-            const msg = (data && (data.error || data.message)) || 'Erro ao processar sua solicitação.';
+            // demais erros
+            const msg = backendMsg || "Erro ao processar sua solicitação.";
             toast?.error?.(msg);
         }
+
         return Promise.reject(err);
     }
 );
