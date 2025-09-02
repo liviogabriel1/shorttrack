@@ -1,85 +1,145 @@
-import { useState } from "react"
-import { api } from "../lib/api"
+import { useMemo, useState } from 'react'
 
-type Link = { id: number; slug: string; url: string; title?: string; createdAt: string; total: number }
+type LinkItem = {
+    id: number
+    slug: string
+    url: string
+    title?: string | null
+    createdAt: string
+    total?: number
+}
 
-type Props = {
-    link: Link
+export default function LinkRow({
+    link,
+    apiBase,
+    onOpen,
+    onDelete,
+    onUpdate,
+}: {
+    link: LinkItem
     apiBase: string
     onOpen: (id: number) => void
     onDelete: (id: number) => void
-    onUpdate: (id: number, payload: Partial<Pick<Link, "slug" | "url" | "title">>) => Promise<void>
-}
-
-export default function LinkRow({ link, onOpen, onDelete, onUpdate, apiBase }: Props) {
-    const [edit, setEdit] = useState(false)
-    const [slug, setSlug] = useState(link.slug)
+    onUpdate: (id: number, payload: Partial<Pick<LinkItem, 'url' | 'slug' | 'title'>>) => void
+}) {
+    const [editing, setEditing] = useState(false)
     const [url, setUrl] = useState(link.url)
-    const [title, setTitle] = useState(link.title || "")
-    const [saving, setSaving] = useState(false)
+    const [slug, setSlug] = useState(link.slug)
+    const [title, setTitle] = useState(link.title || '')
 
-    async function save() {
-        setSaving(true)
-        try {
-            await onUpdate(link.id, { slug: slug.trim() || undefined, url: url.trim() || undefined, title: title.trim() || undefined })
-            setEdit(false)
-        } finally {
-            setSaving(false)
-        }
+    const short = useMemo(() => `${apiBase}/${link.slug}`, [apiBase, link.slug])
+
+    async function copy() {
+        await navigator.clipboard.writeText(short)
     }
-
-    async function openQR() {
-        const res = await api.get(`/api/links/${link.id}/qr`, { responseType: "blob" })
-        const blobUrl = URL.createObjectURL(res.data)
-        // abre em nova aba
-        const a = document.createElement("a")
-        a.href = blobUrl
-        a.target = "_blank"
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
-    }
-
-    const shortUrl = `${apiBase}/${slug}`
 
     return (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <div className="text-sm text-zinc-400">{new Date(link.createdAt).toLocaleString()}</div>
-
-            {!edit ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            {!editing ? (
                 <>
-                    <div className="text-lg font-semibold">{link.title || link.slug}</div>
-                    <div className="text-xs text-zinc-400 break-all">{link.url}</div>
-                    <div className="mt-2 text-sm">Cliques: <b>{link.total}</b></div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                        <button onClick={() => navigator.clipboard.writeText(shortUrl)} className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">Copiar</button>
-                        <button onClick={openQR} className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">QR</button>
-                        <button onClick={() => onOpen(link.id)} className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm">Analytics</button>
-                        <button onClick={() => setEdit(true)} className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-sm">Editar</button>
-                        <button onClick={() => onDelete(link.id)} className="px-3 py-1.5 rounded bg-red-600/80 hover:bg-red-600 text-sm">Excluir</button>
+                    <div className="mb-1 text-sm text-zinc-500 dark:text-zinc-400">
+                        {new Date(link.createdAt).toLocaleString()}
                     </div>
-                    <div className="mt-2 text-xs text-emerald-400">{shortUrl}</div>
+                    <div className="text-lg font-semibold">{link.title || link.slug}</div>
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">{link.url}</div>
+
+                    <div className="mt-2 text-emerald-400">
+                        <a href={short} target="_blank" rel="noreferrer">
+                            {short}
+                        </a>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={copy}
+                            className="rounded bg-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        >
+                            Copiar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => window.open(`${apiBase}/api/links/qr/slug/${link.slug}`, '_blank')}
+                            className="rounded bg-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        >
+                            QR
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onOpen(link.id)}
+                            className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500"
+                        >
+                            Analytics
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setEditing(true)}
+                            className="rounded bg-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        >
+                            Editar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onDelete(link.id)}
+                            className="rounded bg-rose-600 px-3 py-1.5 text-sm text-white hover:bg-rose-500"
+                        >
+                            Excluir
+                        </button>
+                    </div>
+
+                    {typeof link.total === 'number' && (
+                        <div className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                            Cliques: <span className="font-medium text-zinc-300 dark:text-zinc-200">{link.total}</span>
+                        </div>
+                    )}
                 </>
             ) : (
                 <>
-                    <div className="grid md:grid-cols-3 gap-2 mt-2">
-                        <div>
-                            <label className="text-xs text-zinc-400">Slug</label>
-                            <input className="w-full bg-zinc-800 rounded px-2 py-1.5" value={slug} onChange={e => setSlug(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="text-xs text-zinc-400">URL</label>
-                            <input className="w-full bg-zinc-800 rounded px-2 py-1.5" value={url} onChange={e => setUrl(e.target.value)} />
-                        </div>
-                        <div className="md:col-span-3">
-                            <label className="text-xs text-zinc-400">Título (opcional)</label>
-                            <input className="w-full bg-zinc-800 rounded px-2 py-1.5" value={title} onChange={e => setTitle(e.target.value)} />
-                        </div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                        <input
+                            className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+                            value={slug}
+                            onChange={(e) => setSlug(e.target.value)}
+                            placeholder="slug"
+                        />
+                        <input
+                            className="md:col-span-2 rounded border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            placeholder="url"
+                        />
+                        <input
+                            className="md:col-span-3 rounded border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder="título (opcional)"
+                        />
                     </div>
+
                     <div className="mt-3 flex gap-2">
-                        <button disabled={saving} onClick={save} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50">Salvar</button>
-                        <button disabled={saving} onClick={() => { setEdit(false); setSlug(link.slug); setUrl(link.url); setTitle(link.title || "") }} className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50">Cancelar</button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onUpdate(link.id, { slug: slug.trim() || undefined, url: url.trim(), title: title.trim() || undefined })
+                                setEditing(false)
+                            }}
+                            className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500"
+                        >
+                            Salvar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setEditing(false)
+                                setSlug(link.slug)
+                                setUrl(link.url)
+                                setTitle(link.title || '')
+                            }}
+                            className="rounded bg-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                        >
+                            Cancelar
+                        </button>
                     </div>
-                    <div className="mt-2 text-xs text-emerald-400">{shortUrl}</div>
                 </>
             )}
         </div>

@@ -2,25 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-/* fundo com grid suave e blobs */
-.background-grid {
-    background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+/* grid suave de fundo SEM bloquear cliques */
+:root {
+    --dot: rgba(0, 0, 0, .06);
+}
+
+:root.dark {
+    --dot: rgba(255, 255, 255, .06);
+}
+
+html,
+body {
+    min-height: 100%;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    /* fica sempre atrás de tudo */
+    pointer-events: none;
+    /* não intercepta cliques */
+    background-image: radial-gradient(var(--dot) 1px, transparent 1px);
     background-size: 24px 24px;
-    mask-image: radial-gradient(circle at center, black 40%, transparent 75%);
-    -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 75%);
-    opacity: .6;
+    opacity: .4;
 }
 
-@keyframes float {
-    0% {
-        transform: translateY(0) translateX(0)
+@keyframes toast-progress {
+    from {
+        transform: scaleX(1);
     }
 
-    50% {
-        transform: translateY(-18px) translateX(10px)
-    }
-
-    100% {
-        transform: translateY(0) translateX(0)
+    to {
+        transform: scaleX(0);
     }
 }
+
+
+/* (se quiser blobs, adicione-os aqui também via ::after com pointer-events:none) */

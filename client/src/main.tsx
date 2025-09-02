@@ -2,15 +2,15 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Toaster } from 'sonner'                    // <- ADICIONE
 import './index.css'
 
 import App from './App'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LinkPage from './pages/LinkPage'
+import { ToastProvider } from './components/ToastProvider'
 
-// (OPCIONAL) Rota protegida simples
+// Proteção simples
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const token = localStorage.getItem('st_token')
     return token ? <>{children}</> : <Navigate to="/login" replace />
@@ -21,27 +21,25 @@ const qc = new QueryClient()
 createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <QueryClientProvider client={qc}>
-            <BrowserRouter>
-                <Routes>
-                    <Route path="/login" element={<Login />} />
-                    {/* Protegendo as rotas dentro de <App /> (opcional) */}
-                    <Route
-                        path="/"
-                        element={
-                            <ProtectedRoute>
-                                <App />
-                            </ProtectedRoute>
-                        }
-                    >
-                        <Route index element={<Navigate to="/dashboard" replace />} />
-                        <Route path="/dashboard" element={<Dashboard />} />
-                        <Route path="/link/:id" element={<LinkPage />} />
-                    </Route>
-                </Routes>
-            </BrowserRouter>
-
-            {/* <- ADICIONE o Toaster em qualquer lugar fora de <Routes> */}
-            <Toaster richColors position="top-center" />
+            <ToastProvider>
+                <BrowserRouter>
+                    <Routes>
+                        <Route path="/login" element={<Login />} />
+                        <Route
+                            path="/"
+                            element={
+                                <ProtectedRoute>
+                                    <App />
+                                </ProtectedRoute>
+                            }
+                        >
+                            <Route index element={<Navigate to="/dashboard" replace />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/link/:id" element={<LinkPage />} />
+                        </Route>
+                    </Routes>
+                </BrowserRouter>
+            </ToastProvider>
         </QueryClientProvider>
     </React.StrictMode>
 )
