@@ -1,21 +1,27 @@
-# Imagem mais “tranquila” (Debian) para evitar pepinos de OpenSSL/Prisma
+# server/Dockerfile
 FROM node:20-slim
 
 WORKDIR /app
 
-# Instala dependências SEM exigir package-lock
-COPY package.json ./
-RUN npm install
+# 1) Dependências nativas que o Prisma detecta (evita warning/erros)
+RUN apt-get update -y \
+ && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
 
-# Copia o restante do código
+# 2) Copia manifestos + PRISMA antes do npm install (postinstall precisa do schema)
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+
+# 3) Instala deps (executa postinstall -> prisma generate)
+RUN npm ci
+
+# 4) Copia o resto do código e builda TS
 COPY . .
-
-# Gera Prisma Client e builda TS
-RUN npx prisma generate && npm run build
+RUN npm run build
 
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# Aplica migrações e inicia
+# 5) Aplica migrações e inicia
 CMD ["sh","-c","npx prisma migrate deploy && node dist/index.js"]
