@@ -1,20 +1,47 @@
 import express from "express";
 import cors from "cors";
+import type { CorsOptions } from "cors";
 import dotenv from "dotenv";
 import http from "http";
 
-// ⚠️ adicionar .js
+// imports com .js (ESM + NodeNext)
 import authRoutes from "./routes/auth.js";
 import linksRoutes, { redirectHandler } from "./routes/links.js";
 
 dotenv.config();
-const app = express();
+
+const app = express();                 // ✅ cria o app primeiro
 const server = http.createServer(app);
 
 app.set("trust proxy", true);
-const origins = (process.env.CORS_ORIGIN || "http://localhost:5174").split(",");
 
-app.use(cors({ origin: origins, credentials: false }));
+// ----- CORS (depois do app) -----
+const allowList = (process.env.CORS_ORIGIN || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+const corsOptions: CorsOptions = {
+    origin(origin, cb) {
+        if (!origin) return cb(null, true); // healthchecks/curl
+        if (allowList.includes(origin)) return cb(null, true);
+        // opcional: liberar previews *.vercel.app
+        try {
+            const { hostname } = new URL(origin);
+            if (hostname.endsWith(".vercel.app")) return cb(null, true);
+        } catch { }
+        return cb(new Error("Not allowed by CORS"));
+    },
+    credentials: false,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+// --------------------------------
+
 app.use(express.json());
 
 app.get("/health", (_, res) => res.json({ ok: true }));
