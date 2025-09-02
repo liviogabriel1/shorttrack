@@ -5,10 +5,9 @@
     "type": "module",
     "scripts": {
         "dev": "tsx watch src/index.ts",
-        "build": "tsc",
-        "start": "prisma migrate deploy && node dist/index.js",
-        "studio": "prisma studio",
-        "postinstall": "prisma generate"
+        "build": "tsc -p .",
+        "start": "node dist/index.js",
+        "studio": "prisma studio"
     },
     "dependencies": {
         "@prisma/client": "^6.15.0",
