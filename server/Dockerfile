@@ -1,12 +1,13 @@
-FROM node:20-alpine
+# Imagem mais “tranquila” (Debian) para evitar pepinos de OpenSSL/Prisma
+FROM node:20-slim
 
 WORKDIR /app
 
-# Instala dependências pelo lockfile
-COPY package.json package-lock.json ./
-RUN npm ci
+# Instala dependências SEM exigir package-lock
+COPY package.json ./
+RUN npm install
 
-# Copia o resto
+# Copia o restante do código
 COPY . .
 
 # Gera Prisma Client e builda TS
