@@ -1,11 +1,13 @@
-import { Router } from "express"
-import { prisma } from "../prisma"
-import { requireAuth } from "../middleware/auth"
-import { z } from "zod"
-import { customAlphabet } from "nanoid"
-import QRCode from "qrcode"
-import UAParser from "ua-parser-js"
-import dayjs from "dayjs"
+import { Router } from "express";
+// ⚠️ adicionar .js
+import { prisma } from "../prisma.js";
+// ⚠️ adicionar .js
+import { requireAuth } from "../middleware/auth.js";
+import { z } from "zod";
+import { customAlphabet } from "nanoid";
+import QRCode from "qrcode";
+import UAParser from "ua-parser-js";
+import dayjs from "dayjs";
 
 const nano = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 7)
 const router = Router()
@@ -81,7 +83,7 @@ router.get("/", requireAuth, async (req, res) => {
         createdAt: it.createdAt,
         total: it._count.visits,
     }));
-    
+
     res.json({ items, total, page, pageSize })
 })
 

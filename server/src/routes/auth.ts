@@ -1,10 +1,11 @@
-import { Router } from 'express'
-import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
-import { prisma } from '../prisma'
-import { z } from 'zod'
-import { customAlphabet } from 'nanoid'
-import { parsePhoneNumberFromString } from 'libphonenumber-js'
+import { Router } from "express";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+// ⚠️ adicionar .js
+import { prisma } from "../prisma.js";
+import { z } from "zod";
+import { customAlphabet } from "nanoid";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 
 const router = Router()
 const nano = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 32)
