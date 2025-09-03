@@ -3,49 +3,80 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DATABASE_URL_UNPOOLED") // <— descomentado
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// Tipos de verificação possíveis
+enum VerificationType {
+  EMAIL_REGISTER // Código enviado para concluir cadastro
+  PASSWORD_RESET // Código enviado para resetar senha
+  PHONE_CONFIRM // Código enviado por SMS para confirmar telefone
+  MAGIC_LOGIN // Link mágico por e-mail
 }
 
 model User {
-  id           Int       @id @default(autoincrement())
-  email        String    @unique
-  password     String
-  name         String
-  createdAt    DateTime  @default(now())
-  links        Link[]
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt // 👈 coloque assim
+  links     Link[]
 
   phone        String?   @unique
   otpCode      String?
   otpExpires   DateTime?
   resetToken   String?
   resetExpires DateTime?
+
+  // flags de verificação/estado
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+  isActive        Boolean   @default(false)
+
+  // ===== 2FA por TOTP =====
+  totpSecret  String? // armazena secret (ideal criptografar em prod)
+  totpEnabled Boolean  @default(false)
+  backupCodes String[] @default([]) // array de strings, começa vazio
 }
 
 model Link {
-  id        Int      @id @default(autoincrement())
-  slug      String   @unique
+  id        Int       @id @default(autoincrement())
+  slug      String    @unique
   url       String
   title     String?
   userId    Int
-  owner     User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
+  owner     User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
   deletedAt DateTime?
   visits    Visit[]
 }
 
 model Visit {
-  id         Int      @id @default(autoincrement())
-  linkId     Int
-  link       Link     @relation(fields: [linkId], references: [id])
-  createdAt  DateTime @default(now())
-  ip         String?
-  userAgent  String?
-  language   String?
-  referer    String?
-  browser    String?
-  os         String?
-  device     String?
-  country    String?
+  id        Int      @id @default(autoincrement())
+  linkId    Int
+  link      Link     @relation(fields: [linkId], references: [id])
+  createdAt DateTime @default(now())
+  ip        String?
+  userAgent String?
+  language  String?
+  referer   String?
+  browser   String?
+  os        String?
+  device    String?
+  country   String?
+}
+
+model VerificationCode {
+  id         Int              @id @default(autoincrement())
+  type       VerificationType
+  target     String // e-mail ou telefone (dependendo do type)
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([type, target, expiresAt])
 }

@@ -13,19 +13,32 @@ const router = Router();
 // slugs proibidos para evitar conflito de rotas públicas
 const RESERVED = new Set(["api", "health", "favicon.ico"]);
 
-// validações
+/* ====================== Schemas ====================== */
 const linkCreateSchema = z.object({
     url: z.string().url(),
-    slug: z.string().trim().min(3).max(24).regex(/^[a-z0-9-]+$/).optional(),
-    title: z.string().trim().optional(),
-});
-const linkUpdateSchema = z.object({
-    url: z.string().url().optional(),
-    slug: z.string().trim().min(3).max(24).regex(/^[a-z0-9-]+$/).optional(),
+    slug: z
+        .string()
+        .trim()
+        .min(3)
+        .max(24)
+        .regex(/^[a-z0-9-]+$/)
+        .optional(),
     title: z.string().trim().optional(),
 });
 
-// helpers
+const linkUpdateSchema = z.object({
+    url: z.string().url().optional(),
+    slug: z
+        .string()
+        .trim()
+        .min(3)
+        .max(24)
+        .regex(/^[a-z0-9-]+$/)
+        .optional(),
+    title: z.string().trim().optional(),
+});
+
+/* ====================== Helpers ====================== */
 function buildWhere(userId: number, q?: string) {
     const where: any = { userId, deletedAt: null };
     if (q && q.trim()) {
@@ -38,42 +51,28 @@ function buildWhere(userId: number, q?: string) {
     return where;
 }
 
-// rate limit simples (memória) no redirect
-const RATE: Record<string, { count: number; resetAt: number }> = {};
-const WINDOW_MS = 60_000;
-const LIMIT = 60;
-setInterval(() => {
-    const now = Date.now();
-    for (const k of Object.keys(RATE)) if (RATE[k].resetAt < now) delete RATE[k];
-}, 30_000);
-
-// ------------------- CRUD + analytics (autenticado) -------------------
-
-// LISTA
+/* ====================== LISTAR ====================== */
+// GET /api/links?q=&page=&pageSize=
 router.get("/", requireAuth, async (req, res) => {
     const q = String(req.query.q ?? "");
-    const page = Math.max(1, Number(req.query.page ?? "1"));
-    const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize ?? "10")));
+    const page = Math.max(1, Number(req.query.page ?? 1) | 0);
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 20) | 0));
+    const userId = req.user!.id;
 
-    const where = buildWhere(req.user!.id, q);
+    const where = buildWhere(userId, q);
 
-    const total = await prisma.link.count({ where });
-    const itemsRaw = await prisma.link.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: {
-            id: true,
-            slug: true,
-            url: true,
-            title: true,
-            createdAt: true,
-            _count: { select: { visits: true } },
-        },
-    });
+    const [itemsRaw, total] = await Promise.all([
+        prisma.link.findMany({
+            where,
+            orderBy: { id: "desc" },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+            include: { _count: { select: { visits: true } } },
+        }),
+        prisma.link.count({ where }),
+    ]);
 
-    const items = itemsRaw.map((it: (typeof itemsRaw)[number]) => ({
+    const items = itemsRaw.map((it) => ({
         id: it.id,
         slug: it.slug,
         url: it.url,
@@ -82,191 +81,252 @@ router.get("/", requireAuth, async (req, res) => {
         total: it._count.visits,
     }));
 
-    res.json({ items, total, page, pageSize });
+    return res.json({ items, total, page, pageSize });
 });
 
-// CRIAR
-router.post("/", requireAuth, async (req, res) => {
-    const parsed = linkCreateSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
-
-    let { url, slug, title } = parsed.data;
-    if (slug && RESERVED.has(slug)) return res.status(409).json({ error: "Slug reservado" });
-
-    if (!slug) {
-        do {
-            slug = nano();
-        } while (await prisma.link.findUnique({ where: { slug } }));
-    } else {
-        const exists = await prisma.link.findUnique({ where: { slug } });
-        if (exists) return res.status(409).json({ error: "Slug já em uso" });
-    }
-
-    const link = await prisma.link.create({
-        data: { url, slug, title, userId: req.user!.id },
-    });
-    res.json(link);
-});
-
-// ATUALIZAR
-router.put("/:id", requireAuth, async (req, res) => {
-    const id = Number(req.params.id);
-    const parsed = linkUpdateSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
-
-    const link = await prisma.link.findFirst({
-        where: { id, userId: req.user!.id, deletedAt: null },
-    });
-    if (!link) return res.status(404).json({ error: "Not found" });
-
-    if (parsed.data.slug) {
-        const s = parsed.data.slug;
-        if (RESERVED.has(s)) return res.status(409).json({ error: "Slug reservado" });
-        const other = await prisma.link.findUnique({ where: { slug: s } });
-        if (other && other.id !== link.id) return res.status(409).json({ error: "Slug já em uso" });
-    }
-
-    const updated = await prisma.link.update({ where: { id }, data: { ...parsed.data } });
-    res.json(updated);
-});
-
-// DETALHES + ANALYTICS (30 dias)
+/* ====================== DETALHE ====================== */
+// GET /api/links/:id
 router.get("/:id", requireAuth, async (req, res) => {
     const id = Number(req.params.id);
+    const userId = req.user!.id;
+
     const link = await prisma.link.findFirst({
-        where: { id, userId: req.user!.id, deletedAt: null },
+        where: { id, userId, deletedAt: null },
     });
-    if (!link) return res.status(404).json({ error: "Not found" });
+    if (!link) return res.status(404).json({ error: "Link não encontrado" });
 
-    const from = dayjs().subtract(30, "day").toDate();
-    const visits = await prisma.visit.findMany({
-        where: { linkId: id, createdAt: { gte: from } },
-        orderBy: { createdAt: "asc" },
+    return res.json(link);
+});
+
+/* ====================== QR POR ID ====================== */
+// GET /api/links/:id/qr
+router.get("/:id/qr", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const userId = req.user!.id;
+
+    const link = await prisma.link.findFirst({
+        where: { id, userId, deletedAt: null },
     });
+    if (!link) return res.status(404).json({ error: "Link não encontrado" });
 
-    // tipo inferido de cada item retornado
-    type VisitRow = typeof visits[number];
+    const publicBase = process.env.PUBLIC_BASE || "http://localhost:4500";
+    const target = `${publicBase.replace(/\/+$/, "")}/${link.slug}`;
 
-    const byDay: Record<string, number> = {};
-    for (let dIdx = 0; dIdx < 30; dIdx++) {
-        const d = dayjs().subtract(29 - dIdx, "day").format("YYYY-MM-DD");
-        byDay[d] = 0;
+    const png = await QRCode.toBuffer(target, { scale: 6, margin: 1 });
+    res.setHeader("Content-Type", "image/png");
+    return res.send(png);
+});
+
+/* ====================== QR POR SLUG (público) ====================== */
+// GET /api/links/qr/slug/:slug
+router.get("/qr/slug/:slug", async (req, res) => {
+    const { slug } = req.params as { slug: string };
+    const publicBase = process.env.PUBLIC_BASE || "http://localhost:4500";
+    const target = `${publicBase.replace(/\/+$/, "")}/${slug}`;
+
+    const png = await QRCode.toBuffer(target, { scale: 6, margin: 1 });
+    res.setHeader("Content-Type", "image/png");
+    return res.send(png);
+});
+
+/* ====================== CRIAR ====================== */
+// POST /api/links
+router.post("/", requireAuth, async (req, res) => {
+    try {
+        const userId = req.user!.id;
+
+        const parsed = linkCreateSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: "Dados inválidos" });
+        }
+
+        const { url, title, slug: slugFromBody } = parsed.data;
+
+        // gerar/validar slug
+        let slug = (slugFromBody ?? "").trim();
+        if (!slug) {
+            do {
+                slug = nano();
+            } while (await prisma.link.findUnique({ where: { slug } }));
+        } else {
+            if (RESERVED.has(slug)) {
+                return res.status(409).json({ error: "Slug reservado" });
+            }
+            const exists = await prisma.link.findUnique({ where: { slug } });
+            if (exists) return res.status(409).json({ error: "Slug já em uso" });
+        }
+
+        const link = await prisma.link.create({
+            data: {
+                url,
+                slug,
+                title: title ?? null, // use null, não undefined
+                userId,               // relação obrigatória
+            },
+        });
+
+        return res.status(201).json(link);
+    } catch (e) {
+        console.error("POST /api/links error:", e);
+        return res.status(500).json({ error: "Erro ao criar link" });
+    }
+});
+
+/* ====================== ATUALIZAR ====================== */
+// PUT /api/links/:id
+router.put("/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const userId = req.user!.id;
+
+    const parsed = linkUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "Dados inválidos" });
     }
 
-    visits.forEach((v: VisitRow) => {
-        const d = dayjs(v.createdAt).format("YYYY-MM-DD");
-        if (byDay[d] != null) byDay[d] += 1;
+    const current = await prisma.link.findFirst({
+        where: { id, userId, deletedAt: null },
     });
+    if (!current) return res.status(404).json({ error: "Link não encontrado" });
 
-    const by = <K extends string>(k: (v: VisitRow) => K) => {
-        const out: Record<string, number> = {};
-        visits.forEach((v: VisitRow) => {
-            const key = (k(v) || "Unknown") as string;
-            out[key] = (out[key] || 0) + 1;
-        });
-        return Object.entries(out)
-            .map(([name, value]) => ({ name, value }))
-            .sort((a, b) => b.value - a.value);
-    };
+    const data: any = {};
+    if (parsed.data.url) data.url = parsed.data.url;
+    if (typeof parsed.data.title !== "undefined") data.title = parsed.data.title ?? null;
 
-    const byBrowser = by((v) => v.browser || "");
-    const byOS = by((v) => v.os || "");
-    const byRef = by((v) => {
-        try {
-            return new URL(v.referer || "").host || "Direct";
-        } catch {
-            return v.referer ? "Other" : "Direct";
+    if (parsed.data.slug && parsed.data.slug !== current.slug) {
+        if (RESERVED.has(parsed.data.slug)) {
+            return res.status(409).json({ error: "Slug reservado" });
         }
+        const exists = await prisma.link.findUnique({ where: { slug: parsed.data.slug } });
+        if (exists) return res.status(409).json({ error: "Slug já em uso" });
+        data.slug = parsed.data.slug;
+    }
+
+    const updated = await prisma.link.update({
+        where: { id },
+        data,
     });
 
-    res.json({
+    return res.json(updated);
+});
+
+/* ====================== DELETAR (soft delete) ====================== */
+// DELETE /api/links/:id
+router.delete("/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const userId = req.user!.id;
+
+    const current = await prisma.link.findFirst({
+        where: { id, userId, deletedAt: null },
+    });
+    if (!current) return res.status(404).json({ error: "Link não encontrado" });
+
+    await prisma.link.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+    });
+
+    return res.status(204).send();
+});
+
+/* ====================== REDIRECT (público) ====================== */
+// GET /:slug (definido no index.ts depois das APIs)
+export const redirectHandler = async (req: any, res: any) => {
+    const { slug } = req.params as { slug: string };
+
+    const link = await prisma.link.findFirst({
+        where: { slug, deletedAt: null },
+    });
+    if (!link) return res.status(404).send("Not found");
+
+    // registrar visita (best-effort)
+    try {
+        const parser = new UAParser(req.headers["user-agent"]);
+        const ua = parser.getResult();
+        const ref = (req.headers.referer as string | undefined) || undefined;
+        const lang = (req.headers["accept-language"] as string | undefined) || undefined;
+
+        await prisma.visit.create({
+            data: {
+                linkId: link.id,
+                createdAt: new Date(),
+                ip: req.ip,
+                userAgent: req.headers["user-agent"],
+                language: lang || undefined,
+                referer: ref,
+                browser: ua.browser.name || undefined,
+                os: ua.os.name || undefined,
+                device: ua.device.type || "Desktop",
+                country: lang ? lang.split("-")[1] : undefined,
+            },
+        });
+    } catch (e) {
+        // não interrompe o redirect
+        console.warn("visit log failed:", e);
+    }
+
+    return res.redirect(302, link.url);
+};
+
+/* ====================== STATS (últimos 30 dias) ====================== */
+// GET /api/links/:id/stats
+router.get("/:id/stats", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const userId = req.user!.id;
+
+    const link = await prisma.link.findFirst({
+        where: { id, userId, deletedAt: null },
+        select: { id: true, slug: true, url: true, title: true, createdAt: true },
+    });
+    if (!link) return res.status(404).json({ error: "Link não encontrado" });
+
+    // janela dos últimos 30 dias (inclui hoje)
+    const end = dayjs().endOf("day");
+    const start = end.subtract(29, "day").startOf("day");
+
+    const visits = await prisma.visit.findMany({
+        where: { linkId: link.id, createdAt: { gte: start.toDate(), lte: end.toDate() } },
+        select: { createdAt: true, browser: true, os: true, referer: true },
+    });
+
+    // série diária
+    const dayBuckets = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+        const d = start.add(i, "day").format("YYYY-MM-DD");
+        dayBuckets.set(d, 0);
+    }
+    for (const v of visits) {
+        const d = dayjs(v.createdAt).format("YYYY-MM-DD");
+        if (dayBuckets.has(d)) dayBuckets.set(d, (dayBuckets.get(d) || 0) + 1);
+    }
+    const series = Array.from(dayBuckets.entries()).map(([date, value]) => ({ date, value }));
+
+    // breakdown helpers
+    function topKV(arr: (string | null | undefined)[], max = 6) {
+        const m = new Map<string, number>();
+        for (const raw of arr) {
+            const k = String(raw || "N/A");
+            m.set(k, (m.get(k) || 0) + 1);
+        }
+        const all = Array.from(m.entries()).map(([key, value]) => ({ key, value }));
+        all.sort((a, b) => b.value - a.value);
+        const top = all.slice(0, max);
+        const others = all.slice(max);
+        const othersSum = others.reduce((acc, x) => acc + x.value, 0);
+        if (othersSum > 0) top.push({ key: "Outros", value: othersSum });
+        return top;
+    }
+
+    const byBrowser = topKV(visits.map(v => v.browser));
+    const byOS = topKV(visits.map(v => v.os));
+    const byRef = topKV(visits.map(v => v.referer));
+
+    return res.json({
         link,
-        series: Object.entries(byDay).map(([date, value]) => ({ date, value })),
+        series,
         byBrowser,
         byOS,
         byRef,
     });
 });
-
-// DELETAR (soft-delete)
-router.delete("/:id", requireAuth, async (req, res) => {
-    const id = Number(req.params.id);
-    const link = await prisma.link.findFirst({
-        where: { id, userId: req.user!.id, deletedAt: null },
-    });
-    if (!link) return res.status(404).json({ error: "Not found" });
-
-    await prisma.link.update({ where: { id }, data: { deletedAt: new Date() } });
-    res.json({ ok: true });
-});
-
-// QR por id (autenticado)
-router.get("/:id/qr", requireAuth, async (req, res) => {
-    const id = Number(req.params.id);
-    const link = await prisma.link.findFirst({
-        where: { id, userId: req.user!.id, deletedAt: null },
-    });
-    if (!link) return res.status(404).end();
-
-    const base = process.env.PUBLIC_BASE ?? `http://localhost:${process.env.PORT || 4500}`;
-    const url = `${base}/${link.slug}`;
-    const png = await QRCode.toBuffer(url, { margin: 1, width: 256 });
-    res.setHeader("Content-Type", "image/png");
-    res.send(png);
-});
-
-// QR público por slug (sem auth)
-router.get("/qr/slug/:slug", async (req, res) => {
-    const { slug } = req.params as { slug: string };
-    const link = await prisma.link.findUnique({ where: { slug } });
-    if (!link || link.deletedAt) return res.status(404).end();
-    const base = process.env.PUBLIC_BASE ?? `http://localhost:${process.env.PORT || 4500}`;
-    const url = `${base}/${link.slug}`;
-    const png = await QRCode.toBuffer(url, { margin: 1, width: 256 });
-    res.setHeader("Content-Type", "image/png");
-    res.send(png);
-});
-
-// ------------------- redirect público -------------------
-export const redirectHandler = async (req: any, res: any) => {
-    const slug = String(req.params.slug || "").toLowerCase();
-    if (RESERVED.has(slug)) return res.status(404).send("Not found");
-
-    // rate limit por IP+slug
-    const ipKey = (req.ip || "ip") + ":" + slug;
-    const now = Date.now();
-    const state = RATE[ipKey] ?? { count: 0, resetAt: now + WINDOW_MS };
-    if (state.resetAt < now) {
-        state.count = 0;
-        state.resetAt = now + WINDOW_MS;
-    }
-    state.count += 1;
-    RATE[ipKey] = state;
-    if (state.count > LIMIT) return res.status(429).send("Too many requests");
-
-    const link = await prisma.link.findUnique({ where: { slug } });
-    if (!link || link.deletedAt) return res.status(404).send("Link not found");
-
-    // coleta básica
-    const ua = new UAParser(req.headers["user-agent"]).getResult();
-    const lang = String(req.headers["accept-language"] || "").split(",")[0];
-    const ref = String(req.headers["referer"] || req.headers["referrer"] || "") || undefined;
-
-    await prisma.visit.create({
-        data: {
-            linkId: link.id,
-            ip: req.ip,
-            userAgent: req.headers["user-agent"],
-            language: lang || undefined,
-            referer: ref,
-            browser: ua.browser.name || undefined,
-            os: ua.os.name || undefined,
-            device: ua.device.type || "Desktop",
-            country: lang ? lang.split("-")[1] : undefined,
-        },
-    });
-
-    res.redirect(302, link.url);
-};
 
 export default router;

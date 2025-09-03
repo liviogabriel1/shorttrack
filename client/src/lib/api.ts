@@ -1,11 +1,11 @@
-import axios from 'axios';
+// src/lib/api.ts
+import axios from "axios";
 
-const base = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4500';
+const base = (import.meta as any).env?.VITE_API_URL || "http://localhost:4500";
 export const api = axios.create({ baseURL: base });
 
-// injeta Authorization: Bearer <token>
 api.interceptors.request.use((config) => {
-    const t = localStorage.getItem('st_token');
+    const t = localStorage.getItem("st_token");
     if (t) {
         config.headers = config.headers ?? {};
         (config.headers as any).Authorization = `Bearer ${t}`;
@@ -15,7 +15,6 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
-// trata erros globais (401 etc.) e dispara toasts
 api.interceptors.response.use(
     (res) => res,
     (err) => {
@@ -25,21 +24,30 @@ api.interceptors.response.use(
 
         const toast = (window as any).toast as
             | undefined
-            | { success: (m: string) => void; error: (m: string) => void; info: (m: string) => void; warning: (m: string) => void };
+            | {
+                success: (m: string) => void;
+                error: (m: string) => void;
+                info: (m: string) => void;
+                warning: (m: string) => void;
+            };
 
         const backendMsg: string | undefined =
             (data && (data.error || data.message)) || undefined;
 
         if (status === 401) {
-            // não autorizado
             if (path.includes("/api/auth/login")) {
-                toast?.warning?.("E-mail ou senha incorretos.");
+                if (data?.field === "code") {
+                    toast?.warning?.("Informe o código do autenticador.");
+                } else {
+                    toast?.warning?.("E-mail ou senha incorretos.");
+                }
             } else {
                 toast?.warning?.("Sessão expirada. Faça login novamente.");
-                try { localStorage.removeItem("st_token"); } catch { }
+                try {
+                    localStorage.removeItem("st_token");
+                } catch { }
             }
         } else if (status === 409) {
-            // conflito (recurso já existe / slug em uso / e-mail já em uso)
             let msg =
                 backendMsg ||
                 (path.includes("/api/auth/register")
@@ -48,8 +56,10 @@ api.interceptors.response.use(
                         ? "Conflito: slug já em uso ou reservado."
                         : "Conflito: recurso já existe.");
             toast?.warning?.(msg);
+        } else if (status >= 500) {
+            const msg = backendMsg || "Erro no servidor. Tente novamente.";
+            toast?.error?.(msg);
         } else {
-            // demais erros
             const msg = backendMsg || "Erro ao processar sua solicitação.";
             toast?.error?.(msg);
         }
@@ -58,8 +68,28 @@ api.interceptors.response.use(
     }
 );
 
-// helpers para login/logout
 export function setToken(token?: string) {
-    if (token) localStorage.setItem('st_token', token);
-    else localStorage.removeItem('st_token');
+    if (token) localStorage.setItem("st_token", token);
+    else localStorage.removeItem("st_token");
 }
+
+/* ===== Link mágico ===== */
+export async function requestMagicLink(email: string) {
+    const { data } = await api.post("/api/auth/magic/request", { email });
+    return data as { ok: boolean; magicUrl?: string };
+}
+
+/* ===== TOTP ===== */
+export async function totpSetup() {
+    const { data } = await api.post("/api/auth/totp/setup", {});
+    return data as { ok: boolean; otpAuth: string; qrDataUrl: string };
+}
+
+export async function totpEnable(code: string) {
+    const { data } = await api.post("/api/auth/totp/enable", { code });
+    return data as { ok: boolean; backupCodes: string[] };
+}
+
+/* === ALIASES para compatibilidade com sua página === */
+export const setupTotp = totpSetup;
+export const enableTotp = totpEnable;

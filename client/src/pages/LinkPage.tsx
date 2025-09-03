@@ -108,6 +108,15 @@ export default function LinkPage() {
     const T = useThemeTokens()
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4500'
 
+    type KV = { key: string; value: number }
+    type StatsResp = {
+        link: { id: number; slug: string; url: string; title: string | null }
+        series: { date: string; value: number }[]
+        byBrowser: KV[]
+        byOS: KV[]
+        byRef: KV[]
+    }
+
     const [data, setData] = useState<StatsResp | null>(null)
     const [loading, setLoading] = useState(true)
 
@@ -115,7 +124,7 @@ export default function LinkPage() {
         let alive = true
             ; (async () => {
                 try {
-                    const { data } = await api.get<StatsResp>(`/api/links/${id}`)
+                    const { data } = await api.get<StatsResp>(`/api/links/${id}/stats`)
                     if (alive) setData(data)
                 } catch {
                     nav('/dashboard', { replace: true })
@@ -123,23 +132,23 @@ export default function LinkPage() {
                     if (alive) setLoading(false)
                 }
             })()
-        return () => {
-            alive = false
-        }
+        return () => { alive = false }
     }, [id, nav])
 
-    const total = useMemo(
-        () => data?.series.reduce((acc, s) => acc + s.value, 0) ?? 0,
-        [data]
-    )
-    const today = useMemo(() => {
-        if (!data?.series.length) return 0
-        return data.series[data.series.length - 1].value
+    const total = useMemo(() => {
+        const s = data?.series ?? []
+        return s.reduce((acc, x) => acc + x.value, 0)
     }, [data])
-    const last7 = useMemo(
-        () => data?.series.slice(-7).reduce((a, s) => a + s.value, 0) ?? 0,
-        [data]
-    )
+
+    const today = useMemo(() => {
+        const s = data?.series ?? []
+        return s.length ? s[s.length - 1].value : 0
+    }, [data])
+
+    const last7 = useMemo(() => {
+        const s = data?.series ?? []
+        return s.slice(-7).reduce((a, x) => a + x.value, 0)
+    }, [data])
 
     const copy = async () => {
         if (!data) return

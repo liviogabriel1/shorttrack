@@ -1,445 +1,445 @@
-import {
-    useEffect,
-    useRef,
-    useState,
-    forwardRef,
-    type ChangeEvent,
-    type ComponentType,
-    type SVGProps,
-} from 'react'
-import { useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
-import { api, setToken } from '../lib/api'
-import { useAuth } from '../store/auth'
-import AuthLayout from '../components/AuthLayout'
-import IntlPhoneField from '../components/IntlPhoneField'
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, setToken } from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { LogIn, UserPlus, KeyRound, Link as LinkIcon, Shield } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
-import {
-    Mail,
-    Lock,
-    User,
-    KeyRound,
-    ArrowRight,
-    Send,
-    LogIn,
-    UserPlus,
-    Smartphone,
-} from 'lucide-react'
+type Mode = "login" | "register" | "forgot";
 
-type Mode = 'login' | 'register' | 'forgot' | 'sms'
-type InputEvt = ChangeEvent<HTMLInputElement>
+const pageVariants = {
+    initial: { opacity: 0, y: 8, filter: "blur(4px)" },
+    animate: { opacity: 1, y: 0, filter: "blur(0px)" },
+    exit: { opacity: 0, y: -8, filter: "blur(4px)" },
+    transition: { duration: 0.24, ease: [0.22, 1, 0.36, 1] as const }, // <-- Add 'as const' here
+};
 
-type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
-    icon: ComponentType<SVGProps<SVGSVGElement>>
-}
+export default function AuthPage() {
+    const nav = useNavigate();
+    const [mode, setMode] = useState<Mode>("login");
 
-/** Input padrão com ícone (forwardRef para focar via código) */
-const Input = forwardRef<HTMLInputElement, InputProps>(function InputBase(
-    { icon: Icon, className, ...p },
-    ref,
-) {
+    // toast global (opcional via window.toast)
+    const toast = (window as any).toast as
+        | undefined
+        | { success: (m: string) => void; error: (m: string) => void; info: (m: string) => void; warning: (m: string) => void };
+
+    const showErr = (e: unknown, fallback = "Erro ao processar a solicitação.") => {
+        const err = e as any;
+        const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message || fallback;
+        toast?.error?.(msg);
+    };
+
+    /* ====================== LOGIN ====================== */
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [totp, setTotp] = useState("");
+    const [showTotp, setShowTotp] = useState(false);
+    const [logging, setLogging] = useState(false);
+    const [errEmail, setErrEmail] = useState<string>();
+    const [errPass, setErrPass] = useState<string>();
+    const [errCode, setErrCode] = useState<string>();
+
+    async function onSubmitLogin(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault();
+        setErrEmail(undefined);
+        setErrPass(undefined);
+        setErrCode(undefined);
+        setLogging(true);
+
+        try {
+            const payload: any = { email, password };
+            if (showTotp && totp.trim()) payload.code = totp.trim();
+
+            const { data } = await api.post("/api/auth/login", payload);
+            setToken(data.token);
+            toast?.success?.("Bem-vindo!");
+            nav("/dashboard");
+        } catch (err: any) {
+            const fd = err?.response?.data;
+            if (fd?.field === "code") {
+                setShowTotp(true);
+                setErrCode(fd.message || "Informe o código do autenticador.");
+                toast?.info?.("Este usuário tem 2FA habilitado. Digite o código do autenticador.");
+            } else if (fd?.field === "email") {
+                setErrEmail(fd.message);
+            } else if (fd?.field === "password") {
+                setErrPass(fd.message);
+            } else {
+                showErr(err);
+            }
+        } finally {
+            setLogging(false);
+        }
+    }
+
+    async function onMagicLink() {
+        if (!email) {
+            toast?.warning?.("Informe seu e-mail para receber o link mágico.");
+            return;
+        }
+        try {
+            const { data } = await api.post("/api/auth/magic/request", { email });
+            toast?.success?.("Se o e-mail existir, enviaremos um link de acesso.");
+            if (data?.magicUrl) window.open(data.magicUrl, "_blank", "noopener,noreferrer"); // DEV sem SMTP
+        } catch (e) {
+            showErr(e);
+        }
+    }
+
+    /* ====================== REGISTER =================== */
+    const [regName, setRegName] = useState("");
+    const [regEmail, setRegEmail] = useState("");
+    const [emailCode, setEmailCode] = useState("");
+    const [regPhone, setRegPhone] = useState("");
+    const [regPass, setRegPass] = useState("");
+    const [devEmailCode, setDevEmailCode] = useState<string>();
+    const [registering, setRegistering] = useState(false);
+
+    async function onRequestEmailCode() {
+        if (!regEmail) return toast?.warning?.("Informe o e-mail.");
+        try {
+            const { data } = await api.post("/api/auth/register/request-email-code", { email: regEmail });
+            if (data?.devCode) setDevEmailCode(data.devCode);
+            toast?.success?.("Código enviado para o seu e-mail.");
+        } catch (e) {
+            showErr(e);
+        }
+    }
+
+    async function onSubmitRegister(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault();
+        setRegistering(true);
+        try {
+            const payload = {
+                name: regName,
+                email: regEmail,
+                password: regPass,
+                phone: regPhone || undefined,
+                emailCode,
+            };
+            const { data } = await api.post("/api/auth/register", payload);
+            if (data?.next === "verify-phone") {
+                toast?.success?.("Cadastro criado! Confirme seu telefone.");
+                nav("/verify-phone", { state: { userId: data.userId, phone: regPhone } });
+            } else {
+                toast?.success?.("Cadastro criado! Você já pode acessar.");
+                nav("/dashboard");
+            }
+        } catch (e) {
+            showErr(e);
+        } finally {
+            setRegistering(false);
+        }
+    }
+
+    /* ====================== FORGOT ===================== */
+    const [fpEmail, setFpEmail] = useState("");
+    const [fpCode, setFpCode] = useState("");
+    const [fpNewPass, setFpNewPass] = useState("");
+    const [fpStep, setFpStep] = useState<1 | 2>(1);
+    const [fpLoading, setFpLoading] = useState(false);
+
+    async function forgotStep1(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault();
+        setFpLoading(true);
+        try {
+            const { data } = await api.post("/api/auth/password/request", { email: fpEmail });
+            if (data?.devCode) toast?.info?.(`DEV code: ${data.devCode}`);
+            toast?.info?.("Enviamos um código para o e-mail informado.");
+            setFpStep(2);
+        } catch (e) {
+            showErr(e);
+        } finally {
+            setFpLoading(false);
+        }
+    }
+
+    async function forgotStep2(e: React.FormEvent<HTMLFormElement>) {
+        e.preventDefault();
+        setFpLoading(true);
+        try {
+            await api.post("/api/auth/password/confirm", { email: fpEmail, code: fpCode, newPassword: fpNewPass });
+            toast?.success?.("Senha redefinida! Faça login.");
+            setMode("login");
+            setEmail(fpEmail);
+            setPassword("");
+            setFpCode("");
+            setFpNewPass("");
+        } catch (e) {
+            showErr(e);
+        } finally {
+            setFpLoading(false);
+        }
+    }
+
+    /* ========================= UI ====================== */
     return (
-        <div className="relative">
-            <Icon className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-zinc-400" />
-            <input
-                ref={ref}
-                {...p}
-                className={`w-full rounded-xl border border-white/10 bg-zinc-900/60 px-12 py-3 text-[15px] outline-none transition focus:ring-2 focus:ring-violet-500/60 ${className ?? ''}`}
-            />
+        <div className="min-h-screen bg-[#0b0b0d] text-white flex items-center justify-center">
+            <Card className="w-[520px] max-w-[92vw] bg-[#101014] border border-white/10 shadow-2xl rounded-3xl">
+                <CardHeader className="pt-8">
+                    <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="w-full">
+                        <div className="flex justify-center">
+                            <TabsList className="bg-white/5 rounded-2xl p-1">
+                                <TabsTrigger value="login" className="rounded-xl data-[state=active]:bg-violet-600 data-[state=active]:text-white">
+                                    <LogIn className="w-4 h-4" />
+                                </TabsTrigger>
+                                <TabsTrigger value="register" className="rounded-xl data-[state=active]:bg-violet-600 data-[state=active]:text-white">
+                                    <UserPlus className="w-4 h-4" />
+                                </TabsTrigger>
+                                <TabsTrigger value="forgot" className="rounded-xl data-[state=active]:bg-violet-600 data-[state=active]:text-white">
+                                    <KeyRound className="w-4 h-4" />
+                                </TabsTrigger>
+                            </TabsList>
+                        </div>
+                    </Tabs>
+                </CardHeader>
+
+                <CardContent className="pb-8">
+                    <AnimatePresence mode="wait">
+                        {/* LOGIN */}
+                        {mode === "login" && (
+                            <motion.div
+                                key="login"
+                                initial={pageVariants.initial}
+                                animate={pageVariants.animate}
+                                exit={pageVariants.exit}
+                                transition={pageVariants.transition}
+                            >
+                                <CardTitle className="mb-2">Entrar</CardTitle>
+                                <p className="text-white/60 text-sm mb-5">Use seu e-mail e senha para acessar.</p>
+
+                                <form onSubmit={onSubmitLogin} className="space-y-3">
+                                    <div>
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                            placeholder="E-mail"
+                                            type="email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            autoComplete="username"
+                                        />
+                                        {errEmail && <p className="text-red-400 text-xs mt-1">{errEmail}</p>}
+                                    </div>
+
+                                    <div>
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                            placeholder="Senha"
+                                            type="password"
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            autoComplete="current-password"
+                                        />
+                                        {errPass && <p className="text-red-400 text-xs mt-1">{errPass}</p>}
+                                    </div>
+
+                                    {/* Ações secundárias */}
+                                    <div className="flex items-center justify-between pt-1">
+                                        {!showTotp ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowTotp(true)}
+                                                className="text-sm text-white/70 hover:text-white flex items-center gap-2"
+                                            >
+                                                <Shield className="w-4 h-4" />
+                                                Tenho código do autenticador
+                                            </button>
+                                        ) : (
+                                            <span className="text-xs text-white/50 flex items-center gap-2">
+                                                <Shield className="w-4 h-4" />
+                                                2FA habilitado para este login
+                                            </span>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            onClick={onMagicLink}
+                                            className="text-sm text-violet-400 hover:underline flex items-center gap-2"
+                                        >
+                                            <LinkIcon className="w-4 h-4" />
+                                            Link mágico
+                                        </button>
+                                    </div>
+
+                                    {/* Campo TOTP com animação */}
+                                    <AnimatePresence initial={false}>
+                                        {showTotp && (
+                                            <motion.div
+                                                key="totp"
+                                                initial={{ height: 0, opacity: 0, y: -4 }}
+                                                animate={{ height: "auto", opacity: 1, y: 0 }}
+                                                exit={{ height: 0, opacity: 0, y: -4 }}
+                                                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="pt-2">
+                                                    <Input
+                                                        className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                                        placeholder="Código do autenticador (6 dígitos)"
+                                                        value={totp}
+                                                        onChange={(e) => setTotp(e.target.value)}
+                                                        inputMode="numeric"
+                                                        autoComplete="one-time-code"
+                                                    />
+                                                    {errCode && <p className="text-red-400 text-xs mt-1">{errCode}</p>}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+
+                                    <Button type="submit" disabled={logging} className="w-full bg-violet-600 hover:bg-violet-500 rounded-xl">
+                                        {logging ? "Entrando..." : "Entrar →"}
+                                    </Button>
+
+                                    <div className="text-right">
+                                        <button type="button" onClick={() => setMode("forgot")} className="text-sm text-violet-400 hover:underline">
+                                            Esqueci minha senha
+                                        </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-1 text-xs text-white/50">
+                                        <Shield className="w-4 h-4" />
+                                        Seus dados são protegidos e usados apenas para autenticação.
+                                    </div>
+                                </form>
+                            </motion.div>
+                        )}
+
+                        {/* REGISTER */}
+                        {mode === "register" && (
+                            <motion.div
+                                key="register"
+                                initial={pageVariants.initial}
+                                animate={pageVariants.animate}
+                                exit={pageVariants.exit}
+                                transition={pageVariants.transition}
+                            >
+                                <CardTitle className="mb-2">Criar conta</CardTitle>
+                                <p className="text-white/60 text-sm mb-5">
+                                    Confirme seu e-mail (e telefone, se quiser usar SMS) para ativar a conta.
+                                </p>
+
+                                <form onSubmit={onSubmitRegister} className="space-y-3">
+                                    <Input
+                                        className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                        placeholder="Nome"
+                                        value={regName}
+                                        onChange={(e) => setRegName(e.target.value)}
+                                    />
+
+                                    <Input
+                                        className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                        placeholder="E-mail"
+                                        value={regEmail}
+                                        onChange={(e) => setRegEmail(e.target.value)}
+                                        type="email"
+                                    />
+
+                                    <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                            placeholder="Código recebido por e-mail"
+                                            value={emailCode}
+                                            onChange={(e) => setEmailCode(e.target.value)}
+                                        />
+                                        <Button
+                                            type="button"
+                                            onClick={onRequestEmailCode}
+                                            variant="secondary"
+                                            className="md:h-[42px] bg-white/10 hover:bg-white/15 border border-white/10 text-white rounded-xl"
+                                        >
+                                            Enviar código
+                                        </Button>
+                                    </div>
+                                    {devEmailCode && <p className="text-xs opacity-70">DEV: código = {devEmailCode}</p>}
+
+                                    <Input
+                                        className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                        placeholder="Senha"
+                                        type="password"
+                                        value={regPass}
+                                        onChange={(e) => setRegPass(e.target.value)}
+                                    />
+
+                                    <Button disabled={registering} className="w-full bg-violet-600 hover:bg-violet-500 rounded-xl">
+                                        {registering ? "Criando..." : "Criar conta"}
+                                    </Button>
+
+                                    <p className="text-sm text-center text-white/70">
+                                        Já tem conta?{" "}
+                                        <button type="button" className="text-violet-400 hover:underline" onClick={() => setMode("login")}>
+                                            Entrar
+                                        </button>
+                                    </p>
+                                </form>
+                            </motion.div>
+                        )}
+
+                        {/* FORGOT */}
+                        {mode === "forgot" && (
+                            <motion.div
+                                key="forgot"
+                                initial={pageVariants.initial}
+                                animate={pageVariants.animate}
+                                exit={pageVariants.exit}
+                                transition={pageVariants.transition}
+                            >
+                                <CardTitle className="mb-2">Esqueci minha senha</CardTitle>
+                                <p className="text-white/60 text-sm mb-5">Enviaremos um código para o seu e-mail.</p>
+
+                                {fpStep === 1 && (
+                                    <form onSubmit={forgotStep1} className="space-y-3">
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                            placeholder="Seu e-mail"
+                                            value={fpEmail}
+                                            onChange={(e) => setFpEmail(e.target.value)}
+                                            type="email"
+                                        />
+                                        <Button disabled={fpLoading} className="w-full bg-violet-600 hover:bg-violet-500 rounded-xl">
+                                            {fpLoading ? "Enviando..." : "Enviar código"}
+                                        </Button>
+                                    </form>
+                                )}
+
+                                {fpStep === 2 && (
+                                    <form onSubmit={forgotStep2} className="space-y-3">
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                            placeholder="Código (6 dígitos)"
+                                            value={fpCode}
+                                            onChange={(e) => setFpCode(e.target.value)}
+                                        />
+                                        <Input
+                                            className="bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                                            placeholder="Nova senha"
+                                            type="password"
+                                            value={fpNewPass}
+                                            onChange={(e) => setFpNewPass(e.target.value)}
+                                        />
+                                        <div className="flex gap-2">
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                onClick={() => setFpStep(1)}
+                                                className="flex-1 bg-white/10 hover:bg-white/15 border border-white/10 text-white rounded-xl"
+                                            >
+                                                Voltar
+                                            </Button>
+                                            <Button disabled={fpLoading} className="flex-1 bg-violet-600 hover:bg-violet-500 rounded-xl">
+                                                {fpLoading ? "Redefinindo..." : "Redefinir"}
+                                            </Button>
+                                        </div>
+                                    </form>
+                                )}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </CardContent>
+            </Card>
         </div>
-    )
-})
-
-export default function Login() {
-    const [mode, setMode] = useState<Mode>('login')
-
-    // login/register
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
-    const [name, setName] = useState('')
-    const [phone, setPhone] = useState('') // E.164, ex: +5511999999999
-
-    // forgot
-    const [fpEmail, setFpEmail] = useState('')
-    const [fpToken, setFpToken] = useState('')
-    const [fpNewPass, setFpNewPass] = useState('')
-    const [fpStep, setFpStep] = useState<1 | 2>(1)
-
-    // sms
-    const [otp, setOtp] = useState('')
-    const [otpRequested, setOtpRequested] = useState(false)
-
-    // refs p/ foco do primeiro campo de cada aba
-    const loginEmailRef = useRef<HTMLInputElement>(null)
-    const regNameRef = useRef<HTMLInputElement>(null)
-    const fpEmailRef = useRef<HTMLInputElement>(null)
-    const smsPhoneRef = useRef<HTMLInputElement>(null)
-
-    const setAuth = useAuth((s) => s.setAuth)
-    const nav = useNavigate()
-
-    // Se já houver token, envia pro dashboard
-    useEffect(() => {
-        const t = localStorage.getItem('st_token')
-        if (t) {
-            setToken(t)
-            nav('/dashboard')
-        }
-    }, [nav])
-
-    // Ao trocar de aba, foca no primeiro input dela
-    useEffect(() => {
-        const map: Record<Mode, React.RefObject<HTMLInputElement>> = {
-            login: loginEmailRef,
-            register: regNameRef,
-            forgot: fpEmailRef,
-            sms: smsPhoneRef,
-        }
-        map[mode].current?.focus()
-    }, [mode])
-
-    const showErr = (e: unknown) => {
-        const anyE = e as any
-        toast.error(anyE?.response?.data?.error || anyE?.message || 'Erro')
-    }
-
-    // ------- actions
-    async function submitLogin() {
-        try {
-            const { data } = await api.post('/api/auth/login', { email, password })
-            setToken(data.token)
-            setAuth(data.token, data.user)
-            toast.success('Bem-vindo!')
-            nav('/dashboard')
-        } catch (e) {
-            showErr(e)
-        }
-    }
-
-    async function submitRegister() {
-        try {
-            const payload: any = { email, password, name }
-            if (phone.trim()) payload.phone = phone.trim() // E.164
-            const { data } = await api.post('/api/auth/register', payload)
-            setToken(data.token)
-            setAuth(data.token, data.user)
-            toast.success('Conta criada!')
-            nav('/dashboard')
-        } catch (e) {
-            showErr(e)
-        }
-    }
-
-    async function forgotStep1() {
-        try {
-            const { data } = await api.post('/api/auth/forgot-password', {
-                email: fpEmail,
-            })
-            if (data.resetToken) setFpToken(data.resetToken) // útil em dev
-            toast.info('Token enviado (confira o console do servidor).')
-            setFpStep(2)
-        } catch (e) {
-            showErr(e)
-        }
-    }
-
-    async function forgotStep2() {
-        try {
-            await api.post('/api/auth/reset-password', {
-                token: fpToken,
-                password: fpNewPass,
-            })
-            toast.success('Senha redefinida!')
-            setMode('login')
-            setEmail(fpEmail)
-            setPassword('')
-            setFpToken('')
-            setFpNewPass('')
-        } catch (e) {
-            showErr(e)
-        }
-    }
-
-    async function requestOtp() {
-        try {
-            await api.post('/api/auth/request-otp', { phone: phone.trim() }) // E.164
-            setOtpRequested(true)
-            toast.success('Código enviado (confira o console do servidor).')
-        } catch (e) {
-            showErr(e)
-        }
-    }
-
-    async function verifyOtp() {
-        try {
-            const { data } = await api.post('/api/auth/login-otp', {
-                phone: phone.trim(),
-                code: otp.trim(),
-            })
-            setToken(data.token)
-            setAuth(data.token, data.user)
-            toast.success('Logado por SMS!')
-            nav('/dashboard')
-        } catch (e) {
-            showErr(e)
-        }
-    }
-
-    // ------- UI
-    const tabs: { key: Mode; label: string; icon: any }[] = [
-        { key: 'login', label: 'Entrar', icon: LogIn },
-        { key: 'register', label: 'Registrar', icon: UserPlus },
-        { key: 'forgot', label: 'Esqueci senha', icon: KeyRound },
-        { key: 'sms', label: 'Entrar com SMS', icon: Smartphone },
-    ]
-    const idx = tabs.findIndex((t) => t.key === mode)
-
-    return (
-        <AuthLayout>
-            <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-zinc-900/60 p-8 backdrop-blur-xl shadow-[0_20px_80px_-20px_rgba(0,0,0,0.6)] sm:p-10">
-                {/* TABS (ícones) – não roubam foco */}
-                <div
-                    className="relative mb-6"
-                    onMouseDownCapture={(e) => e.preventDefault()}
-                >
-                    <div className="relative mx-auto w-max overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60">
-                        {/* pista/clip do indicador */}
-                        <div className="pointer-events-none absolute inset-1.5 overflow-hidden rounded-xl">
-                            <span
-                                className="absolute inset-y-0 left-0 w-1/4 rounded-xl border border-white/10 bg-gradient-to-br from-violet-700/40 to-emerald-600/40 backdrop-blur-sm transition-transform duration-300"
-                                style={{ transform: `translateX(${idx * 100}%)` }}
-                                aria-hidden
-                            />
-                        </div>
-
-                        <div className="relative z-10 grid grid-cols-4 p-1.5">
-                            {tabs.map((t) => {
-                                const Icon = t.icon
-                                const active = mode === t.key
-                                return (
-                                    <button
-                                        key={t.key}
-                                        type="button"
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => setMode(t.key)}
-                                        aria-selected={active}
-                                        aria-label={t.label}
-                                        title={t.label}
-                                        className={`flex h-10 w-12 items-center justify-center rounded-xl sm:w-14 md:w-16 ${active ? 'text-white' : 'text-zinc-300 hover:text-white'
-                                            }`}
-                                    >
-                                        <Icon className="size-5" />
-                                        <span className="sr-only">{t.label}</span>
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Cabeçalho */}
-                <header className="mb-5">
-                    <h1 className="text-3xl font-semibold">
-                        {mode === 'login' && 'Entrar'}
-                        {mode === 'register' && 'Criar conta'}
-                        {mode === 'forgot' && (fpStep === 1 ? 'Redefinir senha' : 'Definir nova senha')}
-                        {mode === 'sms' && 'Entrar com SMS'}
-                    </h1>
-                    <p className="mt-1 text-sm text-zinc-400">
-                        {mode === 'login' && 'Use seu e-mail e senha para acessar.'}
-                        {mode === 'register' &&
-                            'Preencha os campos para começar a usar o ShortTrack.'}
-                        {mode === 'forgot' &&
-                            (fpStep === 1
-                                ? 'Enviaremos um token para o seu e-mail.'
-                                : 'Cole o token e escolha sua nova senha.')}
-                        {mode === 'sms' &&
-                            (otpRequested
-                                ? 'Digite o código recebido por SMS.'
-                                : 'Informe o telefone cadastrado para receber o código.')}
-                    </p>
-                </header>
-
-                {/* FORMULÁRIOS */}
-                {mode === 'login' && (
-                    <form
-                        className="space-y-4"
-                        onSubmit={(e: React.FormEvent) => {
-                            e.preventDefault()
-                            submitLogin()
-                        }}
-                    >
-                        <Input
-                            ref={loginEmailRef}
-                            icon={Mail}
-                            placeholder="E-mail"
-                            autoFocus
-                            value={email}
-                            onChange={(e: InputEvt) => setEmail(e.target.value)}
-                        />
-                        <Input
-                            icon={Lock}
-                            placeholder="Senha"
-                            type="password"
-                            value={password}
-                            onChange={(e: InputEvt) => setPassword(e.target.value)}
-                        />
-                        <button
-                            type="submit"
-                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3.5 text-[15px] transition hover:bg-violet-500"
-                        >
-                            Entrar <ArrowRight className="size-4" />
-                        </button>
-                    </form>
-                )}
-
-                {mode === 'register' && (
-                    <form
-                        className="space-y-4"
-                        onSubmit={(e: React.FormEvent) => {
-                            e.preventDefault()
-                            submitRegister()
-                        }}
-                    >
-                        <Input
-                            ref={regNameRef}
-                            icon={User}
-                            placeholder="Nome"
-                            autoFocus
-                            value={name}
-                            onChange={(e: InputEvt) => setName(e.target.value)}
-                        />
-                        <Input
-                            icon={Mail}
-                            placeholder="E-mail"
-                            value={email}
-                            onChange={(e: InputEvt) => setEmail(e.target.value)}
-                        />
-                        <Input
-                            icon={Lock}
-                            placeholder="Senha"
-                            type="password"
-                            value={password}
-                            onChange={(e: InputEvt) => setPassword(e.target.value)}
-                        />
-
-                        {/* Telefone internacional com seletor de país (E.164) */}
-                        <IntlPhoneField value={phone} onChange={setPhone} />
-
-                        <button
-                            type="submit"
-                            className="w-full rounded-xl bg-emerald-600 py-3.5 text-[15px] transition hover:bg-emerald-500"
-                        >
-                            Registrar
-                        </button>
-                    </form>
-                )}
-
-                {mode === 'forgot' &&
-                    (fpStep === 1 ? (
-                        <form
-                            className="space-y-4"
-                            onSubmit={(e: React.FormEvent) => {
-                                e.preventDefault()
-                                forgotStep1()
-                            }}
-                        >
-                            <Input
-                                ref={fpEmailRef}
-                                icon={Mail}
-                                placeholder="E-mail da conta"
-                                autoFocus
-                                value={fpEmail}
-                                onChange={(e: InputEvt) => setFpEmail(e.target.value)}
-                            />
-                            <button
-                                type="submit"
-                                className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3.5 text-[15px] transition hover:bg-violet-500"
-                            >
-                                Enviar código <Send className="size-4" />
-                            </button>
-                        </form>
-                    ) : (
-                        <form
-                            className="space-y-4"
-                            onSubmit={(e: React.FormEvent) => {
-                                e.preventDefault()
-                                forgotStep2()
-                            }}
-                        >
-                            <Input
-                                icon={KeyRound}
-                                placeholder="Token recebido"
-                                value={fpToken}
-                                onChange={(e: InputEvt) => setFpToken(e.target.value)}
-                            />
-                            <Input
-                                icon={Lock}
-                                placeholder="Nova senha"
-                                type="password"
-                                value={fpNewPass}
-                                onChange={(e: InputEvt) => setFpNewPass(e.target.value)}
-                            />
-                            <button
-                                type="submit"
-                                className="w-full rounded-xl bg-emerald-600 py-3.5 text-[15px] transition hover:bg-emerald-500"
-                            >
-                                Redefinir
-                            </button>
-                        </form>
-                    ))}
-
-                {mode === 'sms' &&
-                    (!otpRequested ? (
-                        // Passo 1 — pedir código
-                        <form
-                            className="grid gap-3 md:grid-cols-[1fr_auto]"
-                            onSubmit={(e: React.FormEvent) => {
-                                e.preventDefault()
-                                requestOtp()
-                            }}
-                        >
-                            <IntlPhoneField
-                                ref={smsPhoneRef}
-                                value={phone}
-                                onChange={setPhone}
-                            />
-                            <button
-                                type="submit"
-                                className="md:h-[52px] rounded-xl bg-violet-600 px-6 py-3.5 text-[15px] transition hover:bg-violet-500"
-                            >
-                                Enviar código
-                            </button>
-                        </form>
-                    ) : (
-                        // Passo 2 — validar código
-                        <form
-                            className="grid gap-3 md:grid-cols-3"
-                            onSubmit={(e: React.FormEvent) => {
-                                e.preventDefault()
-                                verifyOtp()
-                            }}
-                        >
-                            <IntlPhoneField
-                                value={phone}
-                                onChange={setPhone}
-                                className="md:col-span-2"
-                            />
-                            <Input
-                                icon={KeyRound}
-                                placeholder="Código"
-                                value={otp}
-                                onChange={(e: InputEvt) => setOtp(e.target.value)}
-                            />
-                            <button
-                                type="submit"
-                                className="md:col-span-3 rounded-xl bg-emerald-600 py-3.5 text-[15px] transition hover:bg-emerald-500"
-                            >
-                                Entrar
-                            </button>
-                        </form>
-                    ))}
-            </div>
-        </AuthLayout>
-    )
+    );
 }
